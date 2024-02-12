@@ -5,15 +5,19 @@ SELinux
       * переключатели setsebool;
       * добавление нестандартного порта в имеющийся тип;
       * формирование и установка модуля SELinux.
-      
+ ```   
 -Запускаем ВМ по предоставленному Vagrantfile, с установкой и запуском nginx
-      При установки ВМ, запуск nginx завершится ошибкой, т.к. nginx использует не стандартный порт, который запрещен SELinux для nginx.
+	При установки ВМ, запуск nginx завершится ошибкой, т.к. nginx использует не стандартный порт, который запрещен SELinux для nginx.
 -Входим в ВМ как su и проверяем отключен ли firewalld:
+  
         [root@selinux ~]# systemctl status firewalld
         ● firewalld.service - firewalld - dynamic firewall daemon
            Loaded: loaded (/usr/lib/systemd/system/firewalld.service; disabled; vendor preset: enabled)
            Active: inactive (dead)
              Docs: man:firewalld(1)
+```
+![](./1.png)
+```
 -Проверяем корректность настройки nginx:
         [root@selinux ~]# nginx -t
         nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
@@ -21,14 +25,19 @@ SELinux
 -Проверяем уровень безопасности SELinux:
         [root@selinux ~]# getenforce
         Enforcing
+```
+![](./2.png)
+```
 1.1 Разрешим в SELinux работу nginx на порту TCP 4881 c помощью переключателей setsebool
     - Находим в логах (/var/log/audit/audit.log) информацию о времени блокировании порта
         [root@selinux ~]# cat /var/log/audit/audit.log | grep 4881 
         type=AVC msg=audit(1707486334.233:819): avc:  denied  { name_bind } for  pid=2891 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
+```
+![](./3.png)
+```
     - Копируем время, в которое был записан этот лог, и, с помощью утилиты audit2why смотрим информации о запрете: 
         [root@selinux ~]# grep 1707486334.233:819 /var/log/audit/audit.log | audit2why
         type=AVC msg=audit(1707486334.233:819): avc:  denied  { name_bind } for  pid=2891 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
-
 	        Was caused by:
 	        The boolean nis_enabled was set incorrectly. 
 	        Description:
@@ -36,22 +45,39 @@ SELinux
 
 	        Allow access by executing:
 	        # setsebool -P nis_enabled 1
+```
+![](./4.png)
+```
       Утилита audit2why покажет почему трафик блокируется. Исходя из вывода утилиты, мы видим, что нам нужно поменять параметр nis_enabled.
     - Включим параметр nis_enabled и перезапустим nginx: 
         setsebool -P nis_enabled on        
         systemctl restart nginx
         systemctl status nginx
-        
-      Также можно проверить работу nginx из браузера. Заходим в любой браузер на хосте и переходим по адресу http://127.0.0.1:4881 
+ ```
+![](./5.png)
+```
+      Также можно проверить работу nginx из браузера. Заходим в любой браузер на хосте и переходим по адресу http://127.0.0.1:4881
+```
+![](./6.png)
+```
     - Проверить статус параметра можно с помощью команды: 
         [root@selinux ~]# getsebool -a | grep nis_enabled
         nis_enabled --> on
+```
+![](./7.png)
+```
     - Вернём запрет работы nginx на порту 4881 обратно. Для этого отключим nis_enabled: 
         [root@selinux ~]# setsebool -P nis_enabled off
         [root@selinux ~]# getsebool -a | grep nis_enabled
         nis_enabled --> off
+```
+![](./8.png)
+```
     - После отключения nis_enabled служба nginx снова не запустится.   
- 
+```
+![](./9.png)
+![](./10.png)
+```
 1.2 Теперь разрешим в SELinux работу nginx на порту TCP 4881 c помощью добавления нестандартного порта в имеющийся тип:
     - Поиск имеющегося типа, для http трафика: 
         [root@selinux ~]# semanage port -l | grep http
@@ -60,6 +86,9 @@ SELinux
         http_port_t                    tcp      80, 81, 443, 488, 8008, 8009, 8443, 9000
         pegasus_http_port_t            tcp      5988
         pegasus_https_port_t           tcp      5989
+```
+![](./11.png)
+```
     - Добавим порт в тип http_port_t: 
         semanage port -a -t http_port_t -p tcp 4881 
     - Теперь перезапустим службу nginx и проверим её работу:
@@ -80,7 +109,9 @@ SELinux
         Feb 09 14:41:31 selinux nginx[21877]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
         Feb 09 14:41:31 selinux nginx[21877]: nginx: configuration file /etc/nginx/nginx.conf test is successful
         Feb 09 14:41:31 selinux systemd[1]: Started The nginx HTTP and reverse proxy server.
-
+```
+![](./12.png)
+```
       Также можно проверить работу nginx из браузера. Заходим в любой браузер на хосте и переходим по адресу http://127.0.0.1:4881   
     - Удалить нестандартный порт из имеющегося типа можно с помощью команды:
         [root@selinux ~]# semanage port -d -t  http_port_t -p tcp 4881
@@ -130,7 +161,9 @@ SELinux
         type=AVC msg=audit(1707491494.645:895): avc:  denied  { name_bind } for  pid=21937 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
         type=SYSCALL msg=audit(1707491494.645:895): arch=c000003e syscall=49 success=no exit=-13 a0=6 a1=55cb8313a8b8 a2=10 a3=7ffc59bab320 items=0 ppid=1 pid=21937 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=system_u:system_r:httpd_t:s0 key=(null)
         type=SERVICE_START msg=audit(1707491494.645:896): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
-
+```
+![](./14.png)
+```
     - Воспользуемся утилитой audit2allow для того, чтобы на основе логов SELinux сделать модуль, разрешающий работу nginx на нестандартном порту:
         [root@selinux ~]# grep nginx /var/log/audit/audit.log | audit2allow -M nginx
         ******************** IMPORTANT ***********************
@@ -158,7 +191,9 @@ SELinux
         Feb 09 15:27:55 selinux nginx[21966]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
         Feb 09 15:27:55 selinux nginx[21966]: nginx: configuration file /etc/nginx/nginx.conf test is successful
         Feb 09 15:27:55 selinux systemd[1]: Started The nginx HTTP and reverse proxy server.
-
+```
+![](./15.png)
+```
       После добавления модуля nginx запустился без ошибок. При использовании модуля изменения сохранятся после перезагрузки.
     - Просмотр всех установленных модулей: 
         [root@selinux ~]# semodule -l
@@ -207,3 +242,6 @@ SELinux
         Feb 09 15:34:45 selinux systemd[1]: Failed to start The nginx HTTP and reverse proxy server.
         Feb 09 15:34:45 selinux systemd[1]: Unit nginx.service entered failed state.
         Feb 09 15:34:45 selinux systemd[1]: nginx.service failed.
+```
+![](./16.png)
+```
