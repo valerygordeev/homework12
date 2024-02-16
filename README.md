@@ -1,9 +1,10 @@
-# homework12
-SELinux. Задание 2
+## homework12
+### SELinux. Задание 2
 
 Обеспечение работоспособности приложения при включенном SELinux
 
-Вариант №1
+***Вариант №1***
+```
 1. Устанавливаем стенд из git clone https://github.com/mbfx/otus-linux-adm.git
 2. Разворачиваем - ВМ посредством команды:
      vagrant up
@@ -157,9 +158,10 @@ SELinux. Задание 2
       restorecon reset /etc/named/dynamic/named.ddns.lab.view1.jnl context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
       restorecon reset /etc/named/named.newdns.lab context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
       restorecon reset /etc/named/named.50.168.192.rev context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+```
 
-
-Вариант №2
+***Вариант №2***
+```
 1. Повторям пункт 1-7.
 2. Для решения проблемы создаем файла принудительного присвоения типов local.te:
      [root@ns01 ~]# cat /var/log/audit/audit.log | audit2allow -M local
@@ -207,9 +209,9 @@ SELinux. Задание 2
      Feb 16 06:29:03 ns01 named[709]: client @0x7fea8409e160 192.168.50.15#56329/key zonetransfer.key: view view1: signer "zonetransfer.key" approved
      Feb 16 06:29:03 ns01 named[709]: client @0x7fea8409e160 192.168.50.15#56329/key zonetransfer.key: view view1: updating zone 'ddns.lab/IN': adding an RR at 'www.ddns.lab' A 192.168.50.15
      Feb 16 06:29:29 ns01 su: (to root) vagrant on pts/0
-
-Вариант №3
-
+```
+***Вариант №3***
+```
 Вариант3
 1. Редактируем playbook .../otus-linux-adm/selinux_dns_problems/provisioning/playbook.yml:
    Добавляем в задание:
@@ -283,15 +285,11 @@ SELinux. Задание 2
      Feb 16 11:37:22 localhost su: (to root) vagrant on pts/0
      Feb 16 11:39:59 localhost named[5243]: client @0x7f168c03c3e0 192.168.50.15#52461/key zonetransfer.key: view view1: signer "zonetransfer.key" approved
      Feb 16 11:39:59 localhost named[5243]: client @0x7f168c03c3e0 192.168.50.15#52461/key zonetransfer.key: view view1: updating zone 'ddns.lab/IN': adding an RR at 'www.ddns.lab' A 192.168.50.15
-
+```
 
 Резюме:
-Все варианты рабочие и имеют право на использование. Вариант отключения SELinux я даже не рассматриваю. 
-Первый вариант, предоставленный в домашней работе, на мой взгляд самый прямолиненый. Второй вариант - более гибкий на мой взгляд. Вместо прямой замены, принудительно присваиваем типы: allow named_t etc_t:file write. Третий вариант, как я вижу, наиболее предпочтителен, т.к. предупреждает проблему и решая ее на этапе установки.
-
-
-
-
-
-
-
+Все варианты рабочие и имеют право на использование.
+Вариант отключения SELinux я даже не рассматриваю. 
+Первый вариант, предоставленный в домашней работе, на мой взгляд самый прямолиненый.
+Второй вариант - более гибкий на мой взгляд. Вместо прямой замены, принудительно присваиваем типы: allow named_t etc_t:file write.
+Третий вариант, как я вижу, наиболее предпочтителен, т.к. предупреждает проблему и решая ее на этапе установки.
