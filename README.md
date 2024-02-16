@@ -1,247 +1,297 @@
 # homework12
-SELinux
+SELinux. Задание 2
 
-1.  Запустить nginx на нестандартном порту 3-мя разными способами:
-      * переключатели setsebool;
-      * добавление нестандартного порта в имеющийся тип;
-      * формирование и установка модуля SELinux.
- ```   
--Запускаем ВМ по предоставленному Vagrantfile, с установкой и запуском nginx
-	При установки ВМ, запуск nginx завершится ошибкой, т.к. nginx использует не стандартный порт, который запрещен SELinux для nginx.
--Входим в ВМ как su и проверяем отключен ли firewalld:
-  
-        [root@selinux ~]# systemctl status firewalld
-        ● firewalld.service - firewalld - dynamic firewall daemon
-           Loaded: loaded (/usr/lib/systemd/system/firewalld.service; disabled; vendor preset: enabled)
-           Active: inactive (dead)
-             Docs: man:firewalld(1)
-```
-![](./1.png)
-```
--Проверяем корректность настройки nginx:
-        [root@selinux ~]# nginx -t
-        nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-        nginx: configuration file /etc/nginx/nginx.conf test is successful
--Проверяем уровень безопасности SELinux:
-        [root@selinux ~]# getenforce
-        Enforcing
-```
-![](./2.png)
-```
-1.1 Разрешим в SELinux работу nginx на порту TCP 4881 c помощью переключателей setsebool
-    - Находим в логах (/var/log/audit/audit.log) информацию о времени блокировании порта
-        [root@selinux ~]# cat /var/log/audit/audit.log | grep 4881 
-        type=AVC msg=audit(1707486334.233:819): avc:  denied  { name_bind } for  pid=2891 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
-```
-![](./3.png)
-```
-    - Копируем время, в которое был записан этот лог, и, с помощью утилиты audit2why смотрим информации о запрете: 
-        [root@selinux ~]# grep 1707486334.233:819 /var/log/audit/audit.log | audit2why
-        type=AVC msg=audit(1707486334.233:819): avc:  denied  { name_bind } for  pid=2891 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
-	        Was caused by:
-	        The boolean nis_enabled was set incorrectly. 
-	        Description:
-	        Allow nis to enabled
+Обеспечение работоспособности приложения при включенном SELinux
 
-	        Allow access by executing:
-	        # setsebool -P nis_enabled 1
-```
-![](./4.png)
-```
-      Утилита audit2why покажет почему трафик блокируется. Исходя из вывода утилиты, мы видим, что нам нужно поменять параметр nis_enabled.
-    - Включим параметр nis_enabled и перезапустим nginx: 
-        setsebool -P nis_enabled on        
-        systemctl restart nginx
-        systemctl status nginx
- ```
-![](./5.png)
-```
-      Также можно проверить работу nginx из браузера. Заходим в любой браузер на хосте и переходим по адресу http://127.0.0.1:4881
-```
-![](./6.png)
-```
-    - Проверить статус параметра можно с помощью команды: 
-        [root@selinux ~]# getsebool -a | grep nis_enabled
-        nis_enabled --> on
-```
-![](./7.png)
-```
-    - Вернём запрет работы nginx на порту 4881 обратно. Для этого отключим nis_enabled: 
-        [root@selinux ~]# setsebool -P nis_enabled off
-        [root@selinux ~]# getsebool -a | grep nis_enabled
-        nis_enabled --> off
-```
-![](./8.png)
-```
-    - После отключения nis_enabled служба nginx снова не запустится.   
-```
-![](./9.png)
-![](./10.png)
-```
-1.2 Теперь разрешим в SELinux работу nginx на порту TCP 4881 c помощью добавления нестандартного порта в имеющийся тип:
-    - Поиск имеющегося типа, для http трафика: 
-        [root@selinux ~]# semanage port -l | grep http
-        http_cache_port_t              tcp      8080, 8118, 8123, 10001-10010
-        http_cache_port_t              udp      3130
-        http_port_t                    tcp      80, 81, 443, 488, 8008, 8009, 8443, 9000
-        pegasus_http_port_t            tcp      5988
-        pegasus_https_port_t           tcp      5989
-```
-![](./11.png)
-```
-    - Добавим порт в тип http_port_t: 
-        semanage port -a -t http_port_t -p tcp 4881 
-    - Теперь перезапустим службу nginx и проверим её работу:
-        [root@selinux ~]# systemctl restart nginx
-        [root@selinux ~]# systemctl status nginx
-        ● nginx.service - The nginx HTTP and reverse proxy server
-           Loaded: loaded (/usr/lib/systemd/system/nginx.service; disabled; vendor preset: disabled)
-           Active: active (running) since Fri 2024-02-09 14:41:31 UTC; 11s ago
-          Process: 21879 ExecStart=/usr/sbin/nginx (code=exited, status=0/SUCCESS)
-          Process: 21877 ExecStartPre=/usr/sbin/nginx -t (code=exited, status=0/SUCCESS)
-          Process: 21876 ExecStartPre=/usr/bin/rm -f /run/nginx.pid (code=exited, status=0/SUCCESS)
-         Main PID: 21881 (nginx)
-           CGroup: /system.slice/nginx.service
-                   ├─21881 nginx: master process /usr/sbin/nginx
-                   └─21883 nginx: worker process
+Вариант №1
+1. Устанавливаем стенд из git clone https://github.com/mbfx/otus-linux-adm.git
+2. Разворачиваем - ВМ посредством команды:
+     vagrant up
+3. Проверяем корректность установки ВМ:
+     valery@lenovo:~/repo/otus-linux-adm/selinux_dns_problems$ vagrant status
+     Current machine states:
 
-        Feb 09 14:41:31 selinux systemd[1]: Starting The nginx HTTP and reverse proxy server...
-        Feb 09 14:41:31 selinux nginx[21877]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-        Feb 09 14:41:31 selinux nginx[21877]: nginx: configuration file /etc/nginx/nginx.conf test is successful
-        Feb 09 14:41:31 selinux systemd[1]: Started The nginx HTTP and reverse proxy server.
-```
-![](./12.png)
-```
-      Также можно проверить работу nginx из браузера. Заходим в любой браузер на хосте и переходим по адресу http://127.0.0.1:4881   
-    - Удалить нестандартный порт из имеющегося типа можно с помощью команды:
-        [root@selinux ~]# semanage port -d -t  http_port_t -p tcp 4881
-        [root@selinux ~]# systemctl restart nginx
-        Job for nginx.service failed because the control process exited with error code. See "systemctl status nginx.service" and "journalctl -xe" for details.
-        [root@selinux ~]# systemctl status nginx
-        ● nginx.service - The nginx HTTP and reverse proxy server
-           Loaded: loaded (/usr/lib/systemd/system/nginx.service; disabled; vendor preset: disabled)
-           Active: failed (Result: exit-code) since Fri 2024-02-09 14:44:27 UTC; 3s ago
-          Process: 21879 ExecStart=/usr/sbin/nginx (code=exited, status=0/SUCCESS)
-          Process: 21903 ExecStartPre=/usr/sbin/nginx -t (code=exited, status=1/FAILURE)
-          Process: 21902 ExecStartPre=/usr/bin/rm -f /run/nginx.pid (code=exited, status=0/SUCCESS)
-         Main PID: 21881 (code=exited, status=0/SUCCESS)
+     ns01                      running (virtualbox)
+     client                    running (virtualbox)
 
-        Feb 09 14:44:27 selinux systemd[1]: Stopped The nginx HTTP and reverse proxy server.
-        Feb 09 14:44:27 selinux systemd[1]: Starting The nginx HTTP and reverse proxy server...
-        Feb 09 14:44:27 selinux systemd[1]: nginx.service: control process exited, code=exited status=1
-        Feb 09 14:44:27 selinux nginx[21903]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-        Feb 09 14:44:27 selinux nginx[21903]: nginx: [emerg] bind() to 0.0.0.0:4881 failed (13: Permission denied)
-        Feb 09 14:44:27 selinux nginx[21903]: nginx: configuration file /etc/nginx/nginx.conf test failed
-        Feb 09 14:44:27 selinux systemd[1]: Failed to start The nginx HTTP and reverse proxy server.
-        Feb 09 14:44:27 selinux systemd[1]: Unit nginx.service entered failed state.
-        Feb 09 14:44:27 selinux systemd[1]: nginx.service failed.
-            
-1.3 Разрешим в SELinux работу nginx на порту TCP 4881 c помощью формирования и установки модуля SELinux:   
-    - Попробуем снова запустить nginx:
-        [root@selinux ~]# systemctl start nginx
-        Job for nginx.service failed because the control process exited with error code. See "systemctl status nginx.service" and "journalctl -xe" for details.
-      Nginx не запуститься, так как SELinux продолжает его блокировать. 
-    - Посмотрим логи SELinux, которые относятся к nginx:
-        [root@selinux ~]# grep nginx /var/log/audit/audit.log
-        type=SOFTWARE_UPDATE msg=audit(1707486333.696:817): pid=2764 uid=0 auid=1000 ses=2 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 msg='sw="nginx-filesystem-1:1.20.1-10.el7.noarch" sw_type=rpm key_enforce=0 gpg_res=1 root_dir="/" comm="yum" exe="/usr/bin/python2.7" hostname=? addr=? terminal=? res=success'
-        type=SOFTWARE_UPDATE msg=audit(1707486333.971:818): pid=2764 uid=0 auid=1000 ses=2 subj=unconfined_u:unconfined_r:unconfined_t:s0-s0:c0.c1023 msg='sw="nginx-1:1.20.1-10.el7.x86_64" sw_type=rpm key_enforce=0 gpg_res=1 root_dir="/" comm="yum" exe="/usr/bin/python2.7" hostname=? addr=? terminal=? res=success'
-        type=AVC msg=audit(1707486334.233:819): avc:  denied  { name_bind } for  pid=2891 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
-        type=SYSCALL msg=audit(1707486334.233:819): arch=c000003e syscall=49 success=no exit=-13 a0=6 a1=55b6ee1438b8 a2=10 a3=7fff1c1a25b0 items=0 ppid=1 pid=2891 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=system_u:system_r:httpd_t:s0 key=(null)
-        type=SERVICE_START msg=audit(1707486334.243:820): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
-        type=SERVICE_START msg=audit(1707488928.801:870): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
-        type=SERVICE_STOP msg=audit(1707489296.095:875): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
-        type=AVC msg=audit(1707489296.130:876): avc:  denied  { name_bind } for  pid=21851 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
-        type=SYSCALL msg=audit(1707489296.130:876): arch=c000003e syscall=49 success=no exit=-13 a0=6 a1=555cc80368b8 a2=10 a3=7ffdcab718a0 items=0 ppid=1 pid=21851 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=system_u:system_r:httpd_t:s0 key=(null)
-        type=SERVICE_START msg=audit(1707489296.130:877): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
-        type=SERVICE_START msg=audit(1707489691.946:881): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
-        type=SERVICE_STOP msg=audit(1707489867.727:885): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=success'
-        type=AVC msg=audit(1707489867.762:886): avc:  denied  { name_bind } for  pid=21903 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
-        type=SYSCALL msg=audit(1707489867.762:886): arch=c000003e syscall=49 success=no exit=-13 a0=6 a1=55c659ef88b8 a2=10 a3=7fffeba836a0 items=0 ppid=1 pid=21903 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=system_u:system_r:httpd_t:s0 key=(null)
-        type=SERVICE_START msg=audit(1707489867.762:887): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
-        type=AVC msg=audit(1707491494.645:895): avc:  denied  { name_bind } for  pid=21937 comm="nginx" src=4881 scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:unreserved_port_t:s0 tclass=tcp_socket permissive=0
-        type=SYSCALL msg=audit(1707491494.645:895): arch=c000003e syscall=49 success=no exit=-13 a0=6 a1=55cb8313a8b8 a2=10 a3=7ffc59bab320 items=0 ppid=1 pid=21937 auid=4294967295 uid=0 gid=0 euid=0 suid=0 fsuid=0 egid=0 sgid=0 fsgid=0 tty=(none) ses=4294967295 comm="nginx" exe="/usr/sbin/nginx" subj=system_u:system_r:httpd_t:s0 key=(null)
-        type=SERVICE_START msg=audit(1707491494.645:896): pid=1 uid=0 auid=4294967295 ses=4294967295 subj=system_u:system_r:init_t:s0 msg='unit=nginx comm="systemd" exe="/usr/lib/systemd/systemd" hostname=? addr=? terminal=? res=failed'
-```
-![](./14.png)
-```
-    - Воспользуемся утилитой audit2allow для того, чтобы на основе логов SELinux сделать модуль, разрешающий работу nginx на нестандартном порту:
-        [root@selinux ~]# grep nginx /var/log/audit/audit.log | audit2allow -M nginx
-        ******************** IMPORTANT ***********************
-        To make this policy package active, execute:
+     This environment represents multiple VMs. The VMs are all listed
+     above with their current state. For more information about a specific
+     VM, run `vagrant status NAME`.  
+4. Подключамся к клиенту: 
+     vagrant ssh client
+5. Попробуем внести изменения в зону ddns:
+     [vagrant@client ~]$ nsupdate -k /etc/named.zonetransfer.key
+     > server 192.168.50.10
+     > zone ddns.lab
+     > update add www.ddns.lab. 60 A 192.168.50.15
+     > send
+     update failed: SERVFAIL
+     > quit
+   Изменения внести не получилось. Давайте посмотрим логи SELinux, чтобы понять в чём может быть проблема.    
+6. Для этого воспользуемся утилитой audit2why:
+     [vagrant@client ~]$ sudo -i
+     [root@client ~]# cat /var/log/audit/audit.log | audit2why
+     Ничего не отобразилось, значит на клиенте ошибок нет.
+7. Не закрывая сессию на клиенте, подключимся к серверу ns01 и проверим логи SELinux:
+     [vagrant@ns01 ~]$ sudo -i
+     [root@ns01 ~]# cat /var/log/audit/audit.log | audit2why
+     type=AVC msg=audit(1707730775.459:1907): avc:  denied  { create } for  pid=5109 comm="isc-worker0000" name="named.ddns.lab.view1.jnl" scontext=system_u:system_r:named_t:s0 tcontext=system_u:object_r:etc_t:s0 tclass=file permissive=0
 
-        semodule -i nginx.pp
+	     Was caused by:
+		     Missing type enforcement (TE) allow rule.
 
-    - Audit2allow сформировал модуль, и сообщил нам команду, с помощью которой можно применить данный модуль: 
-        [root@selinux ~]# semodule -i nginx.pp
-    - Попробуем снова запустить nginx:
-        [root@selinux ~]# systemctl start nginx
-        [root@selinux ~]# systemctl status nginx
-        ● nginx.service - The nginx HTTP and reverse proxy server
-           Loaded: loaded (/usr/lib/systemd/system/nginx.service; disabled; vendor preset: disabled)
-           Active: active (running) since Fri 2024-02-09 15:27:55 UTC; 6s ago
-          Process: 21968 ExecStart=/usr/sbin/nginx (code=exited, status=0/SUCCESS)
-          Process: 21966 ExecStartPre=/usr/sbin/nginx -t (code=exited, status=0/SUCCESS)
-          Process: 21965 ExecStartPre=/usr/bin/rm -f /run/nginx.pid (code=exited, status=0/SUCCESS)
-         Main PID: 21970 (nginx)
-           CGroup: /system.slice/nginx.service
-                   ├─21970 nginx: master process /usr/sbin/nginx
-                   └─21972 nginx: worker process
+		     You can use audit2allow to generate a loadable module to allow this access.
+		     
+		     В логах мы видим, что ошибка в контексте безопасности. Вместо типа named_t используется тип etc_t. 
+8.  Проверим данную проблему в каталоге /etc/named:
+      [root@ns01 ~]# ls -laZ /etc/named
+      drw-rwx---. root named system_u:object_r:etc_t:s0       .
+      drwxr-xr-x. root root  system_u:object_r:etc_t:s0       ..
+      drw-rwx---. root named unconfined_u:object_r:etc_t:s0   dynamic
+      -rw-rw----. root named system_u:object_r:etc_t:s0       named.50.168.192.rev
+      -rw-rw----. root named system_u:object_r:etc_t:s0       named.dns.lab
+      -rw-rw----. root named system_u:object_r:etc_t:s0       named.dns.lab.view1
+      -rw-rw----. root named system_u:object_r:etc_t:s0       named.newdns.lab
+9.  Тут мы также видим, что контекст безопасности неправильный. Проблема заключается в том, что конфигурационные файлы лежат в другом каталоге. Посмотреть в каком каталоги должны лежать, файлы, чтобы на них распространялись правильные политики SELinux можно с помощью команды:
+      [root@ns01 ~]# semanage fcontext -l | grep named
+      /etc/rndc.*                                        regular file       system_u:object_r:named_conf_t:s0 
+      /var/named(/.*)?                                   all files          system_u:object_r:named_zone_t:s0 
+      /etc/unbound(/.*)?                                 all files          system_u:object_r:named_conf_t:s0 
+      /var/run/bind(/.*)?                                all files          system_u:object_r:named_var_run_t:s0 
+      /var/log/named.*                                   regular file       system_u:object_r:named_log_t:s0 
+      /var/run/named(/.*)?                               all files          system_u:object_r:named_var_run_t:s0 
+      /var/named/data(/.*)?                              all files          system_u:object_r:named_cache_t:s0 
+      /dev/xen/tapctrl.*                                 named pipe         system_u:object_r:xenctl_t:s0 
+      /var/run/unbound(/.*)?                             all files          system_u:object_r:named_var_run_t:s0 
+      /var/lib/softhsm(/.*)?                             all files          system_u:object_r:named_cache_t:s0 
+      ....
+      /usr/lib/systemd/systemd-hostnamed                 regular file       system_u:object_r:systemd_hostnamed_exec_t:s0 
+      /var/named/chroot/var/named/named\.ca              regular file       system_u:object_r:named_conf_t:s0 
+      /var/named/chroot/etc/named\.root\.hints           regular file       system_u:object_r:named_conf_t:s0 
+      /var/named/chroot/etc/named\.caching-nameserver\.conf regular file       system_u:object_r:named_conf_t:s0 
+      /var/named/chroot/lib64 = /usr/lib
+      /var/named/chroot/usr/lib64 = /usr/lib
+10.  Изменим тип контекста безопасности для каталога /etc/named:
+       [root@ns01 ~]# chcon -R -t named_zone_t /etc/named
+11.  Проверим изменение типа контекста:
+       [root@ns01 ~]# ls -laZ /etc/named
+       drw-rwx---. root named system_u:object_r:named_zone_t:s0 .
+       drwxr-xr-x. root root  system_u:object_r:etc_t:s0       ..
+       drw-rwx---. root named unconfined_u:object_r:named_zone_t:s0 dynamic
+       -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.50.168.192.rev
+       -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.dns.lab
+       -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.dns.lab.view1
+       -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.newdns.lab
+12.  Перейдем на клиента и заново отправим изменения на dns:
+       [root@client ~]# nsupdate -k /etc/named.zonetransfer.key
+       > server 192.168.50.10
+       > zone ddns.lab
+       > update add www.ddns.lab. 60 A 192.168.50.15
+       > send
+       > quit
+     Отправка дополнения была успешной
+13.  Проверим работу домена dns:
+       [root@client ~]# dig www.ddns.lab
 
-        Feb 09 15:27:55 selinux systemd[1]: Starting The nginx HTTP and reverse proxy server...
-        Feb 09 15:27:55 selinux nginx[21966]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-        Feb 09 15:27:55 selinux nginx[21966]: nginx: configuration file /etc/nginx/nginx.conf test is successful
-        Feb 09 15:27:55 selinux systemd[1]: Started The nginx HTTP and reverse proxy server.
-```
-![](./15.png)
-```
-      После добавления модуля nginx запустился без ошибок. При использовании модуля изменения сохранятся после перезагрузки.
-    - Просмотр всех установленных модулей: 
-        [root@selinux ~]# semodule -l
-        abrt	1.4.1
-        accountsd	1.1.0
-        acct	1.6.0
-        afs	1.9.0
-        aiccu	1.1.0
-        aide	1.7.1
-        ajaxterm	1.0.0
-        alsa	1.12.2
-        amanda	1.15.0
-        amtu	1.3.0
-        anaconda	1.7.0
-        antivirus	1.0.0
-        ...
-        wine	1.11.0
-        wireshark	2.4.0
-        xen	1.13.0
-        xguest	1.2.0
-        xserver	3.9.4
-        zabbix	1.6.0
-        zarafa	1.2.0
-        zebra	1.13.0
-        zoneminder	1.0.0
-        zosremote	1.2.0
-    - Для удаления модуля воспользуемся командой: 
-        [root@selinux ~]# semodule -r nginx
-        libsemanage.semanage_direct_remove_key: Removing last nginx module (no other nginx module exists at another priority).
-        [root@selinux ~]# systemctl restart nginx
-        Job for nginx.service failed because the control process exited with error code. See "systemctl status nginx.service" and "journalctl -xe" for details.
-        [root@selinux ~]# systemctl status nginx
-        ● nginx.service - The nginx HTTP and reverse proxy server
-           Loaded: loaded (/usr/lib/systemd/system/nginx.service; disabled; vendor preset: disabled)
-           Active: failed (Result: exit-code) since Fri 2024-02-09 15:34:45 UTC; 5s ago
-          Process: 21968 ExecStart=/usr/sbin/nginx (code=exited, status=0/SUCCESS)
-          Process: 22027 ExecStartPre=/usr/sbin/nginx -t (code=exited, status=1/FAILURE)
-          Process: 22026 ExecStartPre=/usr/bin/rm -f /run/nginx.pid (code=exited, status=0/SUCCESS)
-         Main PID: 21970 (code=exited, status=0/SUCCESS)
+       ; <<>> DiG 9.11.4-P2-RedHat-9.11.4-26.P2.el7_9.15 <<>> www.ddns.lab
+       ;; global options: +cmd
+       ;; Got answer:
+       ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 64068
+       ;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 1, ADDITIONAL: 2
 
-        Feb 09 15:34:45 selinux systemd[1]: Starting The nginx HTTP and reverse proxy server...
-        Feb 09 15:34:45 selinux systemd[1]: nginx.service: control process exited, code=exited status=1
-        Feb 09 15:34:45 selinux nginx[22027]: nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
-        Feb 09 15:34:45 selinux nginx[22027]: nginx: [emerg] bind() to 0.0.0.0:4881 failed (13: Permission denied)
-        Feb 09 15:34:45 selinux nginx[22027]: nginx: configuration file /etc/nginx/nginx.conf test failed
-        Feb 09 15:34:45 selinux systemd[1]: Failed to start The nginx HTTP and reverse proxy server.
-        Feb 09 15:34:45 selinux systemd[1]: Unit nginx.service entered failed state.
-        Feb 09 15:34:45 selinux systemd[1]: nginx.service failed.
-```
-![](./16.png)
-```
+       ;; OPT PSEUDOSECTION:
+       ; EDNS: version: 0, flags:; udp: 4096
+       ;; QUESTION SECTION:
+       ;www.ddns.lab.			IN	A
+
+       ;; ANSWER SECTION:
+       www.ddns.lab.		60	IN	A	192.168.50.15
+
+       ;; AUTHORITY SECTION:
+       ddns.lab.		3600	IN	NS	ns01.dns.lab.
+
+       ;; ADDITIONAL SECTION:
+       ns01.dns.lab.		3600	IN	A	192.168.50.10
+
+       ;; Query time: 1 msec
+       ;; SERVER: 192.168.50.10#53(192.168.50.10)
+       ;; WHEN: Mon Feb 12 10:37:41 UTC 2024
+       ;; MSG SIZE  rcvd: 96
+14.  Проконтролируем работу dns после перезагрузки клиента и сервера:
+       [vagrant@client ~]$ dig @192.168.50.10 www.ddns.lab
+
+       ; <<>> DiG 9.11.4-P2-RedHat-9.11.4-26.P2.el7_9.15 <<>> @192.168.50.10 www.ddns.lab
+       ; (1 server found)
+       ;; global options: +cmd
+       ;; Got answer:
+       ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 383
+       ;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 1, ADDITIONAL: 2
+
+       ;; OPT PSEUDOSECTION:
+       ; EDNS: version: 0, flags:; udp: 4096
+       ;; QUESTION SECTION:
+       ;www.ddns.lab.			IN	A
+
+       ;; ANSWER SECTION:
+       www.ddns.lab.		60	IN	A	192.168.50.15
+
+       ;; AUTHORITY SECTION:
+       ddns.lab.		3600	IN	NS	ns01.dns.lab.
+
+       ;; ADDITIONAL SECTION:
+       ns01.dns.lab.		3600	IN	A	192.168.50.10
+
+       ;; Query time: 3 msec
+       ;; SERVER: 192.168.50.10#53(192.168.50.10)
+       ;; WHEN: Mon Feb 12 10:40:31 UTC 2024
+       ;; MSG SIZE  rcvd: 96
+15. Восстановим типы dns на сервере к первоначальным значениям:
+      [vagrant@ns01 ~]$ sudo -i
+      [root@ns01 ~]# restorecon -v -R /etc/named
+      restorecon reset /etc/named context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+      restorecon reset /etc/named/named.dns.lab context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+      restorecon reset /etc/named/named.dns.lab.view1 context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+      restorecon reset /etc/named/dynamic context unconfined_u:object_r:named_zone_t:s0->unconfined_u:object_r:etc_t:s0
+      restorecon reset /etc/named/dynamic/named.ddns.lab context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+      restorecon reset /etc/named/dynamic/named.ddns.lab.view1 context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+      restorecon reset /etc/named/dynamic/named.ddns.lab.view1.jnl context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+      restorecon reset /etc/named/named.newdns.lab context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+      restorecon reset /etc/named/named.50.168.192.rev context system_u:object_r:named_zone_t:s0->system_u:object_r:etc_t:s0
+
+
+Вариант №2
+1. Повторям пункт 1-7.
+2. Для решения проблемы создаем файла принудительного присвоения типов local.te:
+     [root@ns01 ~]# cat /var/log/audit/audit.log | audit2allow -M local
+     ******************** IMPORTANT ***********************
+     To make this policy package active, execute:
+
+     semodule -i local.pp
+3. Компилируем политику: 
+     [root@ns01 ~]# checkmodule -M -m -o local.mod local.te
+     checkmodule:  loading policy configuration from local.te
+     checkmodule:  policy configuration loaded
+     checkmodule:  writing binary representation (version 19) to local.mod
+4. Содержание модуля:
+     [root@ns01 ~]# cat local.te
+
+     module local 1.0;
+
+     require {
+	     type etc_t;
+	     type named_t;
+	     class file { create write };
+     }
+
+     #============= named_t ==============
+     allow named_t etc_t:file write;
+
+     #!!!! This avc is allowed in the current policy
+     allow named_t etc_t:file create;
+5. Собираем пакет:
+     [root@ns01 ~]# semodule_package -o local.pp -m local.mod
+6. Чтобы загрузить созданный пакет политики в ядро, устанавливаем скомпилированный модуль
+     [root@ns01 ~]# semodule -i local.pp
+7. После перезагрузки ВМ все работает:
+   Клиент:
+     [vagrant@client ~]$ sudo su
+     [root@client vagrant]# nsupdate -k /etc/named.zonetransfer.key
+     > server 192.168.50.10
+     > zone ddns.lab
+     > update add www.ddns.lab. 60 A 192.168.50.15
+     > send
+     > quit
+   Сервер:
+     [root@ns01 vagrant]# tail -n 50 /var/log/messages
+     ...
+     Feb 16 06:29:03 ns01 named[709]: client @0x7fea8409e160 192.168.50.15#56329/key zonetransfer.key: view view1: signer "zonetransfer.key" approved
+     Feb 16 06:29:03 ns01 named[709]: client @0x7fea8409e160 192.168.50.15#56329/key zonetransfer.key: view view1: updating zone 'ddns.lab/IN': adding an RR at 'www.ddns.lab' A 192.168.50.15
+     Feb 16 06:29:29 ns01 su: (to root) vagrant on pts/0
+
+Вариант №3
+
+Вариант3
+1. Редактируем playbook .../otus-linux-adm/selinux_dns_problems/provisioning/playbook.yml:
+   Добавляем в задание:
+   name: install packages # переведём синтаксис yum из deprecated  
+   в packages:
+   - python3-libselinux
+
+   Добавляем перед заданием:
+   name: ensure named is running and enabled:
+      
+  - name: Allow to modify context files in /etc/named/
+    community.general.sefcontext:
+      ftype: a
+      serange: s0
+      seuser: system_u
+      setype: named_zone_t
+      state: present
+      target: '/etc/named(/.*)?'
+      
+  - name: Apply SELinux file context
+    ansible.builtin.command: restorecon -irv /etc/named
+2. Запускаем штатно vagrant
+3. Обновляем записи dns сервера
+   Клиент:
+     [vagrant@client ~]$ sudo su
+     [root@client vagrant]# nsupdate -k /etc/named.zonetransfer.key
+     > server 192.168.50.10
+     > zone ddns.lab
+     > update add www.ddns.lab. 60 A 192.168.50.15
+     > send
+     > quit
+4. Проверяем работу dns сервера
+     [root@client vagrant]# dig www.ddns.lab
+
+     ; <<>> DiG 9.11.4-P2-RedHat-9.11.4-26.P2.el7_9.15 <<>> www.ddns.lab
+     ;; global options: +cmd
+     ;; Got answer:
+     ;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 11418
+     ;; flags: qr aa rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 1, ADDITIONAL: 2
+
+     ;; OPT PSEUDOSECTION:
+     ; EDNS: version: 0, flags:; udp: 4096
+     ;; QUESTION SECTION:
+     ;www.ddns.lab.			IN	A
+
+     ;; ANSWER SECTION:
+     www.ddns.lab.		60	IN	A	192.168.50.15
+
+     ;; AUTHORITY SECTION:
+     ddns.lab.		3600	IN	NS	ns01.dns.lab.
+
+     ;; ADDITIONAL SECTION:
+     ns01.dns.lab.		3600	IN	A	192.168.50.10
+
+     ;; Query time: 2 msec
+     ;; SERVER: 192.168.50.10#53(192.168.50.10)есто
+     ;; WHEN: Fri Feb 16 12:10:02 UTC 2024
+     ;; MSG SIZE  rcvd: 96
+5. Сервер:
+   Проверим контекст директории /etc/named
+     valery@lenovo:~/repo/otus-linux-adm/selinux_dns_problems$ vagrant ssh ns01
+     Last login: Fri Feb 16 11:33:24 2024 from 10.0.2.2
+     [vagrant@ns01 ~]$ sudo su
+     [root@ns01 vagrant]# ll -Z /etc/named
+     drw-rwx---. root named unconfined_u:object_r:named_zone_t:s0 dynamic
+     -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.50.168.192.rev
+     -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.dns.lab
+     -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.dns.lab.view1
+     -rw-rw----. root named system_u:object_r:named_zone_t:s0 named.newdns.lab
+6. Просмострим логи обновления:
+     Feb 16 11:37:22 localhost su: (to root) vagrant on pts/0
+     Feb 16 11:39:59 localhost named[5243]: client @0x7f168c03c3e0 192.168.50.15#52461/key zonetransfer.key: view view1: signer "zonetransfer.key" approved
+     Feb 16 11:39:59 localhost named[5243]: client @0x7f168c03c3e0 192.168.50.15#52461/key zonetransfer.key: view view1: updating zone 'ddns.lab/IN': adding an RR at 'www.ddns.lab' A 192.168.50.15
+
+
+Резюме:
+Все варианты рабочие и имеют право на использование. Вариант отключения SELinux я даже не рассматриваю. 
+Первый вариант, предоставленный в домашней работе, на мой взгляд самый прямолиненый. Второй вариант - более гибкий на мой взгляд. Вместо прямой замены, принудительно присваиваем типы: allow named_t etc_t:file write. Третий вариант, как я вижу, наиболее предпочтителен, т.к. предупреждает проблему и решая ее на этапе установки.
+
+
+
+
+
+
+
